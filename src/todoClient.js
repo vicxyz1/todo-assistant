@@ -17,6 +17,38 @@ function createGraphClient() {
 }
 
 /**
+ * Formats a Date object to a local ISO string (YYYY-MM-DDThh:mm:ss) 
+ * matching the configured timezone, as required by Microsoft Graph API.
+ */
+function toLocalISOString(date) {
+  // Use Intl.DateTimeFormat to get the parts in the correct timezone
+  const options = {
+    timeZone: config.timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  };
+
+  const formatter = new Intl.DateTimeFormat('en-US', options);
+  const parts = formatter.formatToParts(date);
+  
+  const map = {};
+  for (const part of parts) {
+    map[part.type] = part.value;
+  }
+
+  // Handle 24:00:00 Edge case (Intl sometimes returns 24 instead of 00)
+  const hour = map.hour === '24' ? '00' : map.hour;
+
+  // Format: YYYY-MM-DDThh:mm:ss
+  return `${map.year}-${map.month}-${map.day}T${hour}:${map.minute}:${map.second}`;
+}
+
+/**
  * Creates a task in Microsoft To Do
  */
 export async function createTask({ title, dueDate, reminderDate }) {
@@ -25,7 +57,7 @@ export async function createTask({ title, dueDate, reminderDate }) {
 
   if (dueDate) {
     task.dueDateTime = {
-      dateTime: dueDate.toISOString().split('.')[0],
+      dateTime: toLocalISOString(dueDate),
       timeZone: config.timezone,
     };
   }
@@ -33,7 +65,7 @@ export async function createTask({ title, dueDate, reminderDate }) {
   if (reminderDate) {
     task.isReminderOn = true;
     task.reminderDateTime = {
-      dateTime: reminderDate.toISOString().split('.')[0],
+      dateTime: toLocalISOString(reminderDate),
       timeZone: config.timezone,
     };
   }

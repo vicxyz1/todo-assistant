@@ -37,13 +37,16 @@ async function exchangeCode(code) {
     grant_type:    'authorization_code',
   });
 
-  // Only include client_secret if it exists (Web apps need it, Public clients don't)
-  if (config.azure.clientSecret) {
-    body.append('client_secret', config.azure.clientSecret);
+  // STRICT check: only include client_secret if it is a non-empty string
+  const secret = config.azure.clientSecret;
+  if (typeof secret === 'string' && secret.trim().length > 0) {
+    console.log('⚠️ Warning: Sending client_secret in request. (Public clients should not do this!)');
+    body.append('client_secret', secret.trim());
+  } else {
+    console.log('✓ Public client flow: No client_secret sent.');
   }
 
   console.log('Exchanging code with token URL:', config.azure.tokenUrl);
-  console.log('Using redirect_uri:', config.azure.redirectUri);
 
   const res = await fetch(config.azure.tokenUrl, {
     method: 'POST',

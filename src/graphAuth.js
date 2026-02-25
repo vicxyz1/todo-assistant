@@ -13,9 +13,10 @@ async function refreshAccessToken(refreshToken) {
     scope:         config.azure.scopes,
   });
 
-  // Only include client_secret if it exists (public clients don't use it)
-  if (config.azure.clientSecret) {
-    body.append('client_secret', config.azure.clientSecret);
+  // STRICT check: only include client_secret if it is a non-empty string
+  const secret = config.azure.clientSecret;
+  if (typeof secret === 'string' && secret.trim().length > 0) {
+    body.append('client_secret', secret.trim());
   }
 
   const res = await globalThis.fetch(config.azure.tokenUrl, {

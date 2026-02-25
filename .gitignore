@@ -7,30 +7,25 @@ yarn.lock
 .env
 .env.local
 
+# MSAL token cache (contains access/refresh tokens - keep secret!)
+.token-cache.json
+
 # Logs
 logs/
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# Runtime data
+# Runtime
 pids
 *.pid
-*.seed
 *.pid.lock
 
 # IDE
 .idea/
 .vscode/
 *.swp
-*.swo
 *~
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Testing
-coverage/
-.nyc_output/

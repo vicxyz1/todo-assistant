@@ -1,51 +1,52 @@
 import { Client } from '@microsoft/microsoft-graph-client';
-import { ClientSecretCredential } from '@azure/identity';
+import { DeviceCodeCredential } from '@azure/identity';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
 import { config } from './config.js';
 
-/**
- * Creates and returns authenticated Microsoft Graph client
- */
-export function createGraphClient() {
-  const credential = new ClientSecretCredential(
-    config.azure.tenantId,
-    config.azure.clientId,
-    config.azure.clientSecret
-  );
+// Singleton credential — persists token in memory across requests.
+// On first use it prints a device code URL; afterwards it silently refreshes.
+let _credential = null;
 
-  const authProvider = new TokenCredentialAuthenticationProvider(credential, {
-    scopes: ['https://graph.microsoft.com/.default'],
+function getCredential() {
+  if (!_credential) {
+    _credential = new DeviceCodeCredential({
+      clientId: config.azure.clientId,
+      tenantId: config.azure.tenantId, // 'consumers' for personal accounts
+      userPromptCallback: (info) => {
+        console.log('\n============================================================');
+        console.log('🔐 Microsoft Authentication Required (one-time)');
+        console.log('============================================================');
+        console.log(info.message);
+        console.log('============================================================\n');
+      },
+    });
+  }
+  return _credential;
+}
+
+function createGraphClient() {
+  const authProvider = new TokenCredentialAuthenticationProvider(getCredential(), {
+    scopes: ['https://graph.microsoft.com/Tasks.ReadWrite'],
   });
 
-  return Client.initWithMiddleware({
-    authProvider,
-  });
+  return Client.initWithMiddleware({ authProvider });
 }
 
 /**
  * Creates a task in Microsoft To Do
- * @param {Object} taskData - Task information
- * @param {string} taskData.title - Task title
- * @param {Date} taskData.dueDate - Due date/time
- * @param {Date} taskData.reminderDate - Reminder date/time
- * @returns {Promise<Object>} Created task
  */
 export async function createTask({ title, dueDate, reminderDate }) {
   const client = createGraphClient();
 
-  const task = {
-    title,
-  };
+  const task = { title };
 
-  // Add due date if provided
   if (dueDate) {
     task.dueDateTime = {
-      dateTime: dueDate.toISOString().split('.')[0], // Remove milliseconds
+      dateTime: dueDate.toISOString().split('.')[0],
       timeZone: config.timezone,
     };
   }
 
-  // Add reminder if provided
   if (reminderDate) {
     task.isReminderOn = true;
     task.reminderDateTime = {
@@ -55,11 +56,9 @@ export async function createTask({ title, dueDate, reminderDate }) {
   }
 
   try {
-    const createdTask = await client
+    return await client
       .api(`/me/todo/lists/${config.todo.listId}/tasks`)
       .post(task);
-
-    return createdTask;
   } catch (error) {
     console.error('Error creating task:', error);
     throw new Error(`Failed to create task: ${error.message}`);
@@ -68,7 +67,6 @@ export async function createTask({ title, dueDate, reminderDate }) {
 
 /**
  * Lists all To Do task lists
- * @returns {Promise<Array>} Array of task lists
  */
 export async function getTaskLists() {
   const client = createGraphClient();
@@ -84,8 +82,6 @@ export async function getTaskLists() {
 
 /**
  * Gets tasks from a specific list
- * @param {string} listId - Task list ID
- * @returns {Promise<Array>} Array of tasks
  */
 export async function getTasks(listId = config.todo.listId) {
   const client = createGraphClient();

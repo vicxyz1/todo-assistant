@@ -3,13 +3,12 @@
  * Run ONCE via `npm run auth`, open the printed URL in your browser,
  * sign in — tokens are saved to disk and reused by the bot forever.
  *
- * NOTE: Do NOT run this at the same time as `npm start`.
- * Sequence:
- *   1. Start ngrok:      ngrok http 3000
- *   2. Update .env:      OAUTH_REDIRECT_URI=https://<ngrok-url>/auth/callback
- *   3. Authenticate:     npm run auth
- *   4. Open browser URL, sign in
- *   5. Start the bot:    npm start  (no ngrok needed after this)
+ * IMPORTANT - Correct sequence:
+ *   1. ngrok http 3000            (keep running in Terminal 1)
+ *   2. npm run auth               (run in Terminal 2, keep it running!)
+ *   3. Open the printed URL in browser, sign in
+ *   4. Wait for "Authentication successful" in terminal
+ *   5. npm start                  (Terminal 2, AFTER auth completes)
  */
 import http from 'http';
 import { URL } from 'url';
@@ -17,6 +16,8 @@ import { config } from './config.js';
 import { saveTokens } from './tokenStore.js';
 
 const PORT = 3000;
+// Bind to 0.0.0.0 so ngrok can reach it in WSL2 (IPv4 + IPv6)
+const HOST = '0.0.0.0';
 
 function buildAuthUrl(state) {
   const params = new URLSearchParams({
@@ -56,13 +57,14 @@ export async function runAuthFlow() {
 
   return new Promise((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
-      try {
-        const url = new URL(req.url, `http://localhost:${PORT}`);
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      console.log(`→ Incoming request: ${req.method} ${url.pathname}`);
 
-        // Ignore favicon or root hits from browser
+      try {
+        // Only handle the /auth/callback path
         if (!url.pathname.startsWith('/auth/callback')) {
           res.writeHead(200);
-          res.end('Waiting for OAuth callback...');
+          res.end('OAuth server running. Waiting for callback...');
           return;
         }
 
@@ -77,7 +79,15 @@ export async function runAuthFlow() {
           return;
         }
 
-        console.log('\n✅ Callback received! Exchanging code for tokens...');
+        if (!code) {
+          res.writeHead(400);
+          res.end('<h2>No code received from Microsoft.</h2>');
+          server.close();
+          reject(new Error('No authorization code in callback'));
+          return;
+        }
+
+        console.log('\n✓ Callback received! Exchanging code for tokens...');
         const tokenData = await exchangeCode(code);
 
         const tokens = {
@@ -86,6 +96,7 @@ export async function runAuthFlow() {
           expires_at:    Date.now() + tokenData.expires_in * 1000,
         };
         saveTokens(tokens);
+        console.log('✓ Tokens saved to disk.');
 
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end('<h2>&#x2705; Authentication successful! You can close this tab and go back to the terminal.</h2>');
@@ -103,22 +114,23 @@ export async function runAuthFlow() {
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`\n❌ Port ${PORT} is already in use!`);
-        console.error('   Is npm start running? Stop it first, then run npm run auth.\n');
+        console.error('   Stop any running processes (npm start, etc.) then retry.\n');
       } else {
         console.error('Server error:', err.message);
       }
       reject(err);
     });
 
-    server.listen(PORT, () => {
+    // Explicitly bind to 0.0.0.0 to work with ngrok on WSL2
+    server.listen(PORT, HOST, () => {
       console.log('\n============================================================');
       console.log('🔐  Microsoft OAuth2 - One-time Authentication');
       console.log('============================================================');
-      console.log(`\n✓ Local server listening on port ${PORT}`);
+      console.log(`✓ Server listening on ${HOST}:${PORT}`);
+      console.log(`✓ Redirect URI: ${config.azure.redirectUri}`);
       console.log(`\nOpen this URL in your browser:\n`);
       console.log(`  ${authUrl}\n`);
-      console.log('Waiting for Microsoft to redirect back...');
-      console.log('(Make sure ngrok is forwarding to this port)\n');
+      console.log('Waiting for Microsoft to redirect back... (keep this terminal open!)\n');
     });
   });
 }

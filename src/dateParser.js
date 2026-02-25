@@ -8,16 +8,19 @@ import { config } from './config.js';
  * @returns {Object} Parsed date information including title, dueDate, and reminderDate
  */
 export function parseTaskFromText(text, referenceDate = new Date()) {
-  // Parse all dates from the text
-  const results = chrono.parse(text, referenceDate, {
+  // First, let's extract and remove the reminder part so it doesn't confuse chrono or the title
+  const { reminderDate, textWithoutReminder } = extractReminder(text);
+
+  // Parse dates from the remaining text
+  const results = chrono.parse(textWithoutReminder, referenceDate, {
     timezone: config.timezone,
   });
 
   if (results.length === 0) {
     return {
-      title: text.trim(),
+      title: textWithoutReminder.trim(),
       dueDate: null,
-      reminderDate: null,
+      reminderDate: null, // Reminder only makes sense if there's a due date
     };
   }
 
@@ -26,52 +29,65 @@ export function parseTaskFromText(text, referenceDate = new Date()) {
   const dueDate = firstResult.start.date();
 
   // Extract the task title by removing the date text
-  let title = text
+  let title = textWithoutReminder
     .substring(0, firstResult.index)
     .trim();
   
-  if (text.length > firstResult.index + firstResult.text.length) {
-    const afterDate = text.substring(firstResult.index + firstResult.text.length).trim();
+  if (textWithoutReminder.length > firstResult.index + firstResult.text.length) {
+    const afterDate = textWithoutReminder.substring(firstResult.index + firstResult.text.length).trim();
     title = title + ' ' + afterDate;
   }
   
-  title = title.trim();
+  // Clean up extra spaces and commas
+  title = title.replace(/,\s*$/, '').trim();
 
-  // Parse reminder time from text
-  const reminderDate = parseReminder(text, dueDate, firstResult);
+  // If we found a reminder offset earlier, apply it to the parsed dueDate
+  let finalReminder = null;
+  if (reminderDate && reminderDate.offsetMs) {
+    finalReminder = new Date(dueDate.getTime() - reminderDate.offsetMs);
+  }
 
   return {
     title: title || 'New Task',
     dueDate,
-    reminderDate,
+    reminderDate: finalReminder,
   };
 }
 
 /**
- * Parses reminder time from text
- * Looks for patterns like "remind me X minutes/hours before"
+ * Extracts reminder offset from text and returns cleaned text
+ * Handles: "remind me 1h before", "remind 15m before", "remind me in 30 mins"
  */
-function parseReminder(text, dueDate, dateResult) {
-  if (!dueDate) return null;
-
+function extractReminder(text) {
   const lowerText = text.toLowerCase();
   
-  // Pattern: "remind me 15 minutes before"
-  const reminderPattern = /remind(?:\s+me)?\s+(\d+)\s+(minute|minutes|min|hour|hours|hr|hrs?)\s+before/i;
+  // Pattern matches: "remind me 1h before", "remind 15 min before", "remind me 1 hour before"
+  // \s* allows for "1h" or "1 h"
+  const reminderPattern = /,?\s*remind(?:\s+me)?\s+(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\s+before/i;
+  
   const match = lowerText.match(reminderPattern);
 
   if (match) {
     const amount = parseInt(match[1]);
     const unit = match[2];
-    const milliseconds = unit.startsWith('hour') || unit.startsWith('hr') 
-      ? amount * 60 * 60 * 1000 
-      : amount * 60 * 1000;
+    
+    // Check if unit is hours or minutes
+    const isHour = unit.startsWith('h');
+    const offsetMs = isHour ? amount * 60 * 60 * 1000 : amount * 60 * 1000;
 
-    return new Date(dueDate.getTime() - milliseconds);
+    // Remove the reminder text from the original string
+    const textWithoutReminder = text.slice(0, match.index) + text.slice(match.index + match[0].length);
+
+    return {
+      reminderDate: { offsetMs },
+      textWithoutReminder: textWithoutReminder.trim()
+    };
   }
 
-  // Default: no reminder
-  return null;
+  return {
+    reminderDate: null,
+    textWithoutReminder: text
+  };
 }
 
 /**
@@ -91,13 +107,3 @@ export function formatDate(date) {
   
   return new Intl.DateTimeFormat('en-US', options).format(date);
 }
-
-/**
- * Examples of supported natural language inputs:
- * - "tomorrow at 10AM go to bank"
- * - "remind me 15 minutes before"
- * - "next Monday at 3pm call client"
- * - "in 2 hours submit report"
- * - "Friday buy groceries"
- * - "on December 25 send Christmas cards"
- */

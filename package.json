@@ -1,0 +1,26 @@
+{
+  "name": "todo-assistant",
+  "version": "1.0.0",
+  "description": "Telegram bot that adds tasks to Microsoft To Do using natural language",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "microsoft-todo",
+    "natural-language"
+  ],
+  "author": "Vicentiu Costache",
+  "license": "MIT",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@azure/identity": "^4.0.1",
+    "chrono-node": "^2.7.6",
+    "dotenv": "^16.4.5"
+  }
+}

@@ -8,8 +8,10 @@ export const config = {
   },
   azure: {
     clientId: process.env.AZURE_CLIENT_ID,
-    clientSecret: process.env.AZURE_CLIENT_SECRET,
-    // Personal Microsoft accounts MUST use /consumers, not /common or /organizations
+    // clientSecret is OPTIONAL - only needed for 'Web' platform type
+    // For 'Mobile and desktop applications', leave it empty
+    clientSecret: process.env.AZURE_CLIENT_SECRET || '',
+    // Personal Microsoft accounts MUST use /consumers
     authorizeUrl: 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize',
     tokenUrl:     'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
     scopes: 'Tasks.ReadWrite offline_access',
@@ -26,10 +28,10 @@ export function validateConfig() {
   const required = [
     'TELEGRAM_BOT_TOKEN',
     'AZURE_CLIENT_ID',
-    'AZURE_CLIENT_SECRET',
     'OAUTH_REDIRECT_URI',
     'TODO_LIST_ID',
   ];
+  // Note: AZURE_CLIENT_SECRET is now optional
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(

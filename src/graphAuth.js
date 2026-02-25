@@ -8,11 +8,15 @@ import { loadTokens, saveTokens, clearTokens } from './tokenStore.js';
 async function refreshAccessToken(refreshToken) {
   const body = new URLSearchParams({
     client_id:     config.azure.clientId,
-    client_secret: config.azure.clientSecret,
     refresh_token: refreshToken,
     grant_type:    'refresh_token',
     scope:         config.azure.scopes,
   });
+
+  // Only include client_secret if it exists (public clients don't use it)
+  if (config.azure.clientSecret) {
+    body.append('client_secret', config.azure.clientSecret);
+  }
 
   const res = await globalThis.fetch(config.azure.tokenUrl, {
     method: 'POST',

@@ -7,8 +7,8 @@ yarn.lock
 .env
 .env.local
 
-# MSAL token cache (contains access/refresh tokens - keep secret!)
-.token-cache.json
+# Token store (contains access + refresh tokens - keep secret!)
+.tokens.json
 
 # Logs
 logs/

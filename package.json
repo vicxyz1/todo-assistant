@@ -1,6 +1,6 @@
 {
   "name": "todo-assistant",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Telegram bot that adds tasks to Microsoft To Do using natural language",
   "main": "src/index.js",
   "type": "module",

@@ -1,35 +1,19 @@
 import { Client } from '@microsoft/microsoft-graph-client';
-import { DeviceCodeCredential } from '@azure/identity';
-import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
 import { config } from './config.js';
-
-// Singleton credential — persists token in memory across requests.
-// On first use it prints a device code URL; afterwards it silently refreshes.
-let _credential = null;
-
-function getCredential() {
-  if (!_credential) {
-    _credential = new DeviceCodeCredential({
-      clientId: config.azure.clientId,
-      tenantId: config.azure.tenantId, // 'consumers' for personal accounts
-      userPromptCallback: (info) => {
-        console.log('\n============================================================');
-        console.log('🔐 Microsoft Authentication Required (one-time)');
-        console.log('============================================================');
-        console.log(info.message);
-        console.log('============================================================\n');
-      },
-    });
-  }
-  return _credential;
-}
+import { getAccessToken } from './graphAuth.js';
 
 function createGraphClient() {
-  const authProvider = new TokenCredentialAuthenticationProvider(getCredential(), {
-    scopes: ['https://graph.microsoft.com/Tasks.ReadWrite'],
+  return Client.init({
+    // Inline authProvider: fetches (and auto-refreshes) token on every call
+    authProvider: async (done) => {
+      try {
+        const token = await getAccessToken();
+        done(null, token);
+      } catch (err) {
+        done(err, null);
+      }
+    },
   });
-
-  return Client.initWithMiddleware({ authProvider });
 }
 
 /**
@@ -37,7 +21,6 @@ function createGraphClient() {
  */
 export async function createTask({ title, dueDate, reminderDate }) {
   const client = createGraphClient();
-
   const task = { title };
 
   if (dueDate) {
@@ -70,7 +53,6 @@ export async function createTask({ title, dueDate, reminderDate }) {
  */
 export async function getTaskLists() {
   const client = createGraphClient();
-
   try {
     const response = await client.api('/me/todo/lists').get();
     return response.value;
@@ -85,7 +67,6 @@ export async function getTaskLists() {
  */
 export async function getTasks(listId = config.todo.listId) {
   const client = createGraphClient();
-
   try {
     const response = await client
       .api(`/me/todo/lists/${listId}/tasks`)

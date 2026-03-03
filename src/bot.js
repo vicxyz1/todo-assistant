@@ -4,12 +4,26 @@ import { parseTaskWithAI } from './aiParser.js';
 import { formatDate, formatDateOnly } from './dateParser.js';
 import { createTask, getTaskLists, getTasks } from './todoClient.js';
 
+/**
+ * Returns true if the message sender is in the allowed list.
+ * If ALLOWED_TELEGRAM_IDS is empty, all users are allowed.
+ */
+function isAuthorized(msg) {
+  const allowedIds = config.telegram.allowedIds;
+  if (!allowedIds || allowedIds.length === 0) return true;
+  return allowedIds.includes(msg.from.id);
+}
+
 export function createBot() {
   const bot = new TelegramBot(config.telegram.botToken, { polling: true });
 
   // Handle /start command
   bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
+    if (!isAuthorized(msg)) {
+      bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
+      return;
+    }
     const welcomeMessage = `
 👋 Welcome to Microsoft To Do Assistant!
 
@@ -31,6 +45,10 @@ Commands:
   // Handle /help command
   bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
+    if (!isAuthorized(msg)) {
+      bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
+      return;
+    }
     const helpMessage = `
 📝 How to use:
 
@@ -62,6 +80,10 @@ Commands:
   // Handle /lists command
   bot.onText(/\/lists/, async (msg) => {
     const chatId = msg.chat.id;
+    if (!isAuthorized(msg)) {
+      bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
+      return;
+    }
     try {
       bot.sendMessage(chatId, '🔄 Fetching your To Do lists...');
       const lists = await getTaskLists();
@@ -85,6 +107,10 @@ Commands:
   // Handle /tasks command
   bot.onText(/\/tasks/, async (msg) => {
     const chatId = msg.chat.id;
+    if (!isAuthorized(msg)) {
+      bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
+      return;
+    }
     try {
       bot.sendMessage(chatId, '🔄 Fetching recent tasks...');
       const tasks = await getTasks();
@@ -117,6 +143,11 @@ Commands:
     const chatId = msg.chat.id;
     const text = msg.text;
     if (!text || text.trim() === '') return;
+
+    if (!isAuthorized(msg)) {
+      bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
+      return;
+    }
 
     try {
       await bot.sendMessage(chatId, '🤖 Parsing with AI...');

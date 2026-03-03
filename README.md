@@ -10,6 +10,7 @@ A Telegram bot that creates tasks in Microsoft To Do using **AI-powered natural 
 - **Reminder Support**: AI understands reminder phrases like "remind me 15 minutes before"
 - **Timezone Aware**: All dates resolved in your configured timezone
 - **Multiple Commands**: View lists, recent tasks, and get help
+- **User Whitelist**: Restrict bot access to specific Telegram user IDs (family/trusted users only)
 
 ## Natural Language Examples 💬
 
@@ -26,12 +27,13 @@ The bot understands a wide range of natural language inputs:
 ## How It Works 🔧
 
 1. **User sends message** via Telegram
-2. **OpenRouter AI** parses the natural language and extracts:
+2. **Authorization check** — only users in `ALLOWED_TELEGRAM_IDS` are allowed
+3. **OpenRouter AI** parses the natural language and extracts:
    - `title` — the task name (date/time references stripped)
    - `dueDate` — resolved ISO datetime, or null
    - `reminderDate` — calculated reminder datetime, or null
-3. **Microsoft Graph API** creates the task in your To Do list
-4. **Confirmation** is sent back to the user
+4. **Microsoft Graph API** creates the task in your To Do list
+5. **Confirmation** is sent back to the user
 
 ## Prerequisites 📋
 
@@ -79,7 +81,15 @@ The bot understands a wide range of natural language inputs:
 1. Configure the bot and run it
 2. Use `/lists` command to see all list IDs
 
-### 5. Install and Configure
+### 5. Find Your Telegram User ID
+
+To restrict bot access to your family only:
+1. Open Telegram and send any message to [@userinfobot](https://t.me/userinfobot)
+2. It will reply with your numeric user ID (e.g. `123456789`)
+3. Repeat for each family member
+4. Add all IDs to `ALLOWED_TELEGRAM_IDS` in your `.env` (comma-separated)
+
+### 6. Install and Configure
 
 ```bash
 git clone https://github.com/vicxyz1/todo-assistant.git
@@ -104,6 +114,7 @@ npm run dev
 | `OAUTH_REDIRECT_URI` | ✅ | OAuth callback URI (default: `http://localhost:3000/auth/callback`) |
 | `TODO_LIST_ID` | ✅ | Target Microsoft To Do list ID |
 | `OPENROUTER_API_KEY` | ✅ | OpenRouter API key for AI parsing |
+| `ALLOWED_TELEGRAM_IDS` | ❌ | Comma-separated Telegram user IDs allowed to use the bot. If empty, all users are allowed |
 | `OPENROUTER_MODEL` | ❌ | AI model to use (default: `openai/gpt-4o-mini`) |
 | `AZURE_CLIENT_SECRET` | ❌ | Only needed for Web platform apps |
 | `TIMEZONE` | ❌ | Timezone for date resolution (default: `Europe/Bucharest`) |
@@ -142,13 +153,25 @@ Friday at 2pm dentist appointment, remind me 30 minutes before
 in 3 hours call John
 ```
 
+## User Whitelist (Access Control) 🔒
+
+To restrict the bot to family members only, set `ALLOWED_TELEGRAM_IDS` in your `.env`:
+
+```env
+ALLOWED_TELEGRAM_IDS=123456789,987654321,555000111
+```
+
+- Find any Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot)
+- Unauthorized users will receive: `🚫 Sorry, you are not authorized to use this bot.`
+- If `ALLOWED_TELEGRAM_IDS` is left empty, all users are allowed (open access)
+
 ## Project Structure 📁
 
 ```
 todo-assistant/
 ├── src/
 │   ├── index.js          # Main entry point
-│   ├── bot.js            # Telegram bot handlers
+│   ├── bot.js            # Telegram bot handlers + auth check
 │   ├── config.js         # Configuration management
 │   ├── aiParser.js       # AI-powered NLP via OpenRouter
 │   ├── dateParser.js     # Date formatting utilities
@@ -176,6 +199,11 @@ todo-assistant/
 ### Dates not parsed correctly
 - Check your `TIMEZONE` setting in `.env`
 - Try a different AI model via `OPENROUTER_MODEL` (e.g., `openai/gpt-4o`)
+
+### "Not authorized" on my own messages
+- Verify your Telegram user ID is in `ALLOWED_TELEGRAM_IDS`
+- Get your ID from [@userinfobot](https://t.me/userinfobot)
+- Restart the bot after editing `.env`
 
 ## Deployment Options 🌐
 

@@ -5,6 +5,9 @@ dotenv.config();
 export const config = {
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
+    allowedIds: process.env.ALLOWED_TELEGRAM_IDS
+      ? process.env.ALLOWED_TELEGRAM_IDS.split(',').map(id => parseInt(id.trim(), 10))
+      : [],
   },
   azure: {
     clientId: process.env.AZURE_CLIENT_ID,

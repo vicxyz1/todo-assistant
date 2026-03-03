@@ -1,25 +1,49 @@
 import { config } from './config.js';
 
-const SYSTEM_PROMPT = `You are a task extraction assistant. Given a natural language message, extract:
+/**
+ * Returns the current UTC offset string for the configured timezone.
+ * e.g. "+02:00" or "+03:00" (handles DST automatically).
+ */
+function getUtcOffset(timezone) {
+  const now = new Date();
+  // Get local time parts in the target timezone
+  const tzDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+  // Get UTC time parts
+  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const diffMs = tzDate - utcDate;
+  const sign = diffMs >= 0 ? '+' : '-';
+  const totalMins = Math.round(Math.abs(diffMs) / 60000);
+  const hours = String(Math.floor(totalMins / 60)).padStart(2, '0');
+  const mins = String(totalMins % 60).padStart(2, '0');
+  return `${sign}${hours}:${mins}`;
+}
+
+/**
+ * Builds the system prompt with the current UTC offset baked in,
+ * so the AI always returns timezone-aware ISO strings.
+ */
+function buildSystemPrompt(utcOffset) {
+  return `You are a task extraction assistant. Given a natural language message, extract:
 1. Task name/title (required)
-2. Due date (optional) - in ISO 8601 format (YYYY-MM-DDTHH:mm:ss), or null if not specified
-3. Reminder datetime (optional) - in ISO 8601 format (YYYY-MM-DDTHH:mm:ss), or null if not specified
+2. Due date (optional)
+3. Reminder datetime (optional)
 
-The current date/time in the user's timezone is provided as context. Use it to resolve relative dates.
+The current date/time in the user's timezone and the exact UTC offset are provided as context.
 
-Respond ONLY with valid JSON in this exact format (no markdown, no explanation):
+Respond ONLY with valid JSON (no markdown, no explanation):
 {
   "title": "task name here",
-  "dueDate": "2024-03-15T10:00:00",
-  "reminderDate": "2024-03-15T09:45:00"
+  "dueDate": "2026-03-27T23:59:00${utcOffset}",
+  "reminderDate": "2026-03-27T08:00:00${utcOffset}"
 }
 
 Rules:
-- title: extract the actual task name, strip all date/time/reminder references
-- dueDate: if no specific time is given, assume end of day (23:59:00); set to null if no date found
-- reminderDate: if a reminder is mentioned (e.g., "remind me 15 min before"), calculate the exact datetime based on the due date; set to null if not mentioned
+- title: extract the actual task name; strip all date/time/reminder text
+- dueDate: ALWAYS append the UTC offset "${utcOffset}" to the datetime string; if no time given, default to 09:00:00; set to null if no date found
+- reminderDate: ALWAYS append the UTC offset "${utcOffset}" to the datetime string; calculate from reminder phrase (e.g. "remind me at 8AM" → use 08:00:00, "remind me 15 min before" → subtract from dueDate); set to null if not mentioned
 - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") against the provided current date/time
 - Always return all three fields; use null for missing optional fields`;
+}
 
 /**
  * Parses a natural language message using AI via OpenRouter API.
@@ -34,6 +58,8 @@ export async function parseTaskWithAI(text) {
   }
 
   const now = new Date();
+  const utcOffset = getUtcOffset(config.timezone);
+
   const nowStr = now.toLocaleString('en-US', {
     timeZone: config.timezone,
     weekday: 'long',
@@ -45,8 +71,10 @@ export async function parseTaskWithAI(text) {
     second: '2-digit',
   });
 
+  const systemPrompt = buildSystemPrompt(utcOffset);
+
   const userMessage =
-    `Current date/time: ${nowStr} (timezone: ${config.timezone})\n\nUser message: "${text}"`;
+    `Current date/time: ${nowStr}\nTimezone: ${config.timezone} (UTC${utcOffset})\n\nUser message: "${text}"`;
 
   const response = await fetch(`${config.openrouter.baseUrl}/chat/completions`, {
     method: 'POST',
@@ -59,7 +87,7 @@ export async function parseTaskWithAI(text) {
     body: JSON.stringify({
       model: config.openrouter.model,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
       ],
       temperature: 0.1,
@@ -93,6 +121,7 @@ export async function parseTaskWithAI(text) {
 
   return {
     title: parsed.title?.trim() || 'New Task',
+    // new Date() correctly parses offset-aware strings like "2026-03-27T23:59:00+02:00"
     dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
     reminderDate: parsed.reminderDate ? new Date(parsed.reminderDate) : null,
   };

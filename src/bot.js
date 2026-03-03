@@ -2,7 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { config } from './config.js';
 import { parseTaskWithAI } from './aiParser.js';
 import { formatDate, formatDateOnly } from './dateParser.js';
-import { createTask, getTaskLists, getTasks } from './todoClient.js';
+import { createTask, getTaskLists, getTasks, getListIdByName } from './todoClient.js';
 
 /**
  * Returns true if the message sender is in the allowed list.
@@ -12,6 +12,26 @@ function isAuthorized(msg) {
   const allowedIds = config.telegram.allowedIds;
   if (!allowedIds || allowedIds.length === 0) return true;
   return allowedIds.includes(msg.from.id);
+}
+
+/**
+ * Extracts an optional "on <ListName>" suffix from a message.
+ * Returns { cleanText, listName } where listName may be null.
+ *
+ * Examples:
+ *   "task tomorrow on Private"  → { cleanText: "task tomorrow", listName: "Private" }
+ *   "buy groceries on Shopping" → { cleanText: "buy groceries", listName: "Shopping" }
+ *   "call John tomorrow"        → { cleanText: "call John tomorrow", listName: null }
+ */
+function extractListFromText(text) {
+  const match = text.match(/\s+on\s+([A-Za-z0-9 _-]+)$/i);
+  if (match) {
+    return {
+      cleanText: text.slice(0, match.index).trim(),
+      listName: match[1].trim(),
+    };
+  }
+  return { cleanText: text, listName: null };
 }
 
 export function createBot() {
@@ -24,6 +44,7 @@ export function createBot() {
       bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
       return;
     }
+    const defaultList = config.todo.defaultListName || 'default list';
     const welcomeMessage = `
 👋 Welcome to Microsoft To Do Assistant!
 
@@ -33,6 +54,11 @@ I use AI to understand your tasks. Just send a message like:
 • "Dentist March 15 at 9AM, remind me 30 min before" → reminder at 8:30AM
 • "Buy groceries Friday"
 • "Call client next Monday at 3PM"
+• "task tomorrow on Private" → adds to the "Private" list
+
+📋 List targeting:
+  Add "on <ListName>" at the end to specify a list.
+  Default list: "${defaultList}"
 
 Commands:
 /help - Show this help message
@@ -49,12 +75,14 @@ Commands:
       bot.sendMessage(chatId, '🚫 Sorry, you are not authorized to use this bot.');
       return;
     }
+    const defaultList = config.todo.defaultListName || 'default list';
     const helpMessage = `
 📝 How to use:
 
 Send any message describing your task. The AI will extract:
   📅 Due date (date only — MS Todo doesn't support time on due dates)
   ⏰ Reminder (with time)
+  📋 Target list (optional)
 
 Examples:
 • "Party tomorrow at 7 evening"
@@ -68,6 +96,16 @@ Examples:
 
 • "Call John in 2 hours"
    → Due: today | Reminder: in 2 hours
+
+• "task tomorrow on Private"
+   → Adds task to the "Private" list
+
+• "buy groceries on Shopping"
+   → Adds task to the "Shopping" list
+
+📋 List targeting:
+  Append "on <ListName>" to target a specific list.
+  If omitted, tasks go to: "${defaultList}"
 
 Commands:
 /lists - Show your To Do lists
@@ -124,7 +162,6 @@ Commands:
         const title = task.title || 'Untitled';
         message += `${status} ${index + 1}. ${title}\n`;
         if (task.dueDateTime) {
-          // dueDateTime from MS Graph has no meaningful time — show date only
           const dueDate = new Date(task.dueDateTime.dateTime);
           message += `   📅 Due: ${formatDateOnly(dueDate)}\n`;
         }
@@ -152,25 +189,47 @@ Commands:
     try {
       await bot.sendMessage(chatId, '🤖 Parsing with AI...');
 
-      const taskData = await parseTaskWithAI(text);
+      // Extract optional "on <ListName>" suffix before passing to AI
+      const { cleanText, listName: requestedListName } = extractListFromText(text);
+
+      const taskData = await parseTaskWithAI(cleanText);
+
+      // Resolve target list
+      const targetListName = requestedListName || config.todo.defaultListName || null;
+      let resolvedListId = null;
+
+      if (targetListName) {
+        resolvedListId = await getListIdByName(targetListName);
+        if (!resolvedListId) {
+          await bot.sendMessage(
+            chatId,
+            `⚠️ List "${targetListName}" not found. Using default list instead.`
+          );
+        }
+      }
 
       // Build confirmation message
       let confirmMessage = `📝 Creating task:\n\n`;
       confirmMessage += `Title: ${taskData.title}\n`;
 
       if (taskData.dueDate) {
-        // Due date: show date only (MS Todo doesn't support time on due dates)
         confirmMessage += `📅 Due: ${formatDateOnly(taskData.dueDate)}\n`;
       }
 
       if (taskData.reminderDate) {
-        // Reminder: show full date + time
         confirmMessage += `⏰ Reminder: ${formatDate(taskData.reminderDate)}\n`;
+      }
+
+      if (targetListName) {
+        confirmMessage += `📋 List: ${resolvedListId ? targetListName : 'default'}\n`;
       }
 
       await bot.sendMessage(chatId, confirmMessage);
 
-      const createdTask = await createTask(taskData);
+      const createdTask = await createTask({
+        ...taskData,
+        listId: resolvedListId,
+      });
 
       await bot.sendMessage(
         chatId,

@@ -4,7 +4,6 @@ import { getAccessToken } from './graphAuth.js';
 
 function createGraphClient() {
   return Client.init({
-    // Inline authProvider: fetches (and auto-refreshes) token on every call
     authProvider: async (done) => {
       try {
         const token = await getAccessToken();
@@ -17,11 +16,10 @@ function createGraphClient() {
 }
 
 /**
- * Formats a Date object to a local ISO string (YYYY-MM-DDThh:mm:ss) 
+ * Formats a Date object to a local ISO string (YYYY-MM-DDThh:mm:ss)
  * matching the configured timezone, as required by Microsoft Graph API.
  */
 function toLocalISOString(date) {
-  // Use Intl.DateTimeFormat to get the parts in the correct timezone
   const options = {
     timeZone: config.timezone,
     year: 'numeric',
@@ -35,24 +33,48 @@ function toLocalISOString(date) {
 
   const formatter = new Intl.DateTimeFormat('en-US', options);
   const parts = formatter.formatToParts(date);
-  
+
   const map = {};
   for (const part of parts) {
     map[part.type] = part.value;
   }
 
-  // Handle 24:00:00 Edge case (Intl sometimes returns 24 instead of 00)
+  // Handle 24:00:00 edge case (Intl sometimes returns 24 instead of 00)
   const hour = map.hour === '24' ? '00' : map.hour;
 
-  // Format: YYYY-MM-DDThh:mm:ss
   return `${map.year}-${map.month}-${map.day}T${hour}:${map.minute}:${map.second}`;
 }
 
+// In-memory cache for list lookups (cleared on process restart)
+let listCache = null;
+
 /**
- * Creates a task in Microsoft To Do
+ * Resolves a list display name to its Microsoft Graph list ID.
+ * Uses an in-memory cache to avoid repeated API calls.
+ * @param {string} name - The display name of the list (case-insensitive)
+ * @returns {Promise<string|null>} The list ID, or null if not found
  */
-export async function createTask({ title, dueDate, reminderDate }) {
+export async function getListIdByName(name) {
+  if (!listCache) {
+    listCache = await getTaskLists();
+  }
+  const found = listCache.find(
+    (l) => l.displayName.toLowerCase() === name.toLowerCase()
+  );
+  return found ? found.id : null;
+}
+
+/**
+ * Creates a task in Microsoft To Do.
+ * @param {object} params
+ * @param {string} params.title
+ * @param {Date|null} params.dueDate
+ * @param {Date|null} params.reminderDate
+ * @param {string|null} params.listId - explicit list ID; falls back to config.todo.listId
+ */
+export async function createTask({ title, dueDate, reminderDate, listId }) {
   const client = createGraphClient();
+  const resolvedListId = listId || config.todo.listId;
   const task = { title };
 
   if (dueDate) {
@@ -72,7 +94,7 @@ export async function createTask({ title, dueDate, reminderDate }) {
 
   try {
     return await client
-      .api(`/me/todo/lists/${config.todo.listId}/tasks`)
+      .api(`/me/todo/lists/${resolvedListId}/tasks`)
       .post(task);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -81,7 +103,7 @@ export async function createTask({ title, dueDate, reminderDate }) {
 }
 
 /**
- * Lists all To Do task lists
+ * Lists all To Do task lists.
  */
 export async function getTaskLists() {
   const client = createGraphClient();
@@ -95,7 +117,7 @@ export async function getTaskLists() {
 }
 
 /**
- * Gets tasks from a specific list
+ * Gets tasks from a specific list.
  */
 export async function getTasks(listId = config.todo.listId) {
   const client = createGraphClient();

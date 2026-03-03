@@ -22,6 +22,7 @@ export const config = {
   },
   todo: {
     listId: process.env.TODO_LIST_ID,
+    defaultListName: process.env.TODO_DEFAULT_LIST_NAME || '',
   },
   openrouter: {
     apiKey: process.env.OPENROUTER_API_KEY,

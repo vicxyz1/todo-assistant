@@ -5,7 +5,9 @@ A Telegram bot that creates tasks in Microsoft To Do using **AI-powered natural 
 ## Features ✨
 
 - **AI-Powered NLP**: Uses [OpenRouter](https://openrouter.ai) to call LLMs (default: `openai/gpt-4o-mini`) for intelligent natural language parsing
-- **Automatic Task Creation**: Creates tasks directly in your Microsoft To Do default list
+- **Automatic Task Creation**: Creates tasks directly in your Microsoft To Do list
+- **Task List Targeting**: Add `on <ListName>` to send tasks to any specific list (e.g. `task tomorrow on Private`)
+- **Default List via `.env`**: Set `TODO_DEFAULT_LIST_NAME` to use a named list as default when no list is specified
 - **Due Date Support**: AI extracts and resolves relative and absolute dates/times
 - **Reminder Support**: AI understands reminder phrases like "remind me 15 minutes before"
 - **Timezone Aware**: All dates resolved in your configured timezone
@@ -23,17 +25,21 @@ The bot understands a wide range of natural language inputs:
 - `on December 25 send Christmas cards`
 - `next week review proposal`
 - `dentist appointment March 15 at 9am, remind 1 hour before`
+- `task tomorrow on Private` → adds to the **Private** list
+- `buy groceries on Shopping` → adds to the **Shopping** list
 
 ## How It Works 🔧
 
 1. **User sends message** via Telegram
 2. **Authorization check** — only users in `ALLOWED_TELEGRAM_IDS` are allowed
-3. **OpenRouter AI** parses the natural language and extracts:
+3. **List extraction** — `on <ListName>` suffix is parsed from the message (if present)
+4. **OpenRouter AI** parses the natural language and extracts:
    - `title` — the task name (date/time references stripped)
    - `dueDate` — resolved ISO datetime, or null
    - `reminderDate` — calculated reminder datetime, or null
-4. **Microsoft Graph API** creates the task in your To Do list
-5. **Confirmation** is sent back to the user
+5. **List resolution** — list name resolved to ID via Microsoft Graph (cached in memory)
+6. **Microsoft Graph API** creates the task in the target To Do list
+7. **Confirmation** is sent back to the user
 
 ## Prerequisites 📋
 
@@ -112,8 +118,9 @@ npm run dev
 | `TELEGRAM_BOT_TOKEN` | ✅ | Telegram bot token from BotFather |
 | `AZURE_CLIENT_ID` | ✅ | Azure AD app client ID |
 | `OAUTH_REDIRECT_URI` | ✅ | OAuth callback URI (default: `http://localhost:3000/auth/callback`) |
-| `TODO_LIST_ID` | ✅ | Target Microsoft To Do list ID |
+| `TODO_LIST_ID` | ✅ | Fallback Microsoft To Do list ID |
 | `OPENROUTER_API_KEY` | ✅ | OpenRouter API key for AI parsing |
+| `TODO_DEFAULT_LIST_NAME` | ❌ | Default list **name** (e.g. `Private`). Used when no `on <ListName>` is specified. Falls back to `TODO_LIST_ID` if not set. |
 | `ALLOWED_TELEGRAM_IDS` | ❌ | Comma-separated Telegram user IDs allowed to use the bot. If empty, all users are allowed |
 | `OPENROUTER_MODEL` | ❌ | AI model to use (default: `openai/gpt-4o-mini`) |
 | `AZURE_CLIENT_SECRET` | ❌ | Only needed for Web platform apps |
@@ -153,6 +160,25 @@ Friday at 2pm dentist appointment, remind me 30 minutes before
 in 3 hours call John
 ```
 
+**Task to a specific list:**
+```
+task tomorrow on Private
+buy groceries on Shopping
+call dentist Friday on Work
+```
+
+### List Targeting
+
+Append `on <ListName>` at the end of any message to add the task to a specific list:
+
+- `task tomorrow on Private` → adds to **Private** list
+- `buy groceries on Shopping` → adds to **Shopping** list
+- `meeting notes on Work` → adds to **Work** list
+
+If no list is specified, the bot uses `TODO_DEFAULT_LIST_NAME` from `.env` (e.g. `Private`). If that's not set either, it falls back to `TODO_LIST_ID`.
+
+> **Tip**: Use `/lists` to see all available list names.
+
 ## User Whitelist (Access Control) 🔒
 
 To restrict the bot to family members only, set `ALLOWED_TELEGRAM_IDS` in your `.env`:
@@ -171,11 +197,11 @@ ALLOWED_TELEGRAM_IDS=123456789,987654321,555000111
 todo-assistant/
 ├── src/
 │   ├── index.js          # Main entry point
-│   ├── bot.js            # Telegram bot handlers + auth check
+│   ├── bot.js            # Telegram bot handlers + list extraction
 │   ├── config.js         # Configuration management
 │   ├── aiParser.js       # AI-powered NLP via OpenRouter
 │   ├── dateParser.js     # Date formatting utilities
-│   └── todoClient.js     # Microsoft Graph API client
+│   └── todoClient.js     # Microsoft Graph API client + list resolver
 ├── .env.example          # Environment variables template
 ├── .gitignore
 ├── package.json
@@ -195,6 +221,11 @@ todo-assistant/
 ### "Failed to create task" error
 - Verify Azure credentials and `TODO_LIST_ID`
 - Check that `Tasks.ReadWrite` permission is granted in Azure
+
+### List not found warning
+- Check the exact list name using `/lists` command
+- List names are case-insensitive but must match exactly (no extra spaces)
+- Verify `TODO_DEFAULT_LIST_NAME` in `.env` matches your actual list name
 
 ### Dates not parsed correctly
 - Check your `TIMEZONE` setting in `.env`

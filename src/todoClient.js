@@ -45,8 +45,21 @@ function toLocalISOString(date) {
   return `${map.year}-${map.month}-${map.day}T${hour}:${map.minute}:${map.second}`;
 }
 
-// In-memory cache for list lookups (cleared on process restart)
+// In-memory caches (cleared on process restart)
 let listCache = null;
+let currentUserCache = null;
+
+/**
+ * Returns the current authenticated user's profile (cached).
+ * Used to set assignedTo on tasks in shared lists.
+ */
+async function getCurrentUser() {
+  if (!currentUserCache) {
+    const client = createGraphClient();
+    currentUserCache = await client.api('/me').select('displayName,userPrincipalName').get();
+  }
+  return currentUserCache;
+}
 
 /**
  * Resolves a list display name to its Microsoft Graph list ID.
@@ -66,6 +79,8 @@ export async function getListIdByName(name) {
 
 /**
  * Creates a task in Microsoft To Do.
+ * Always sets assignedTo to the current authenticated user so that
+ * on shared lists the task is correctly assigned to you.
  * @param {object} params
  * @param {string} params.title
  * @param {Date|null} params.dueDate
@@ -75,7 +90,13 @@ export async function getListIdByName(name) {
 export async function createTask({ title, dueDate, reminderDate, listId }) {
   const client = createGraphClient();
   const resolvedListId = listId || config.todo.listId;
-  const task = { title };
+
+  // Always assign to the current user (no-op on personal lists, required on shared lists)
+  const me = await getCurrentUser();
+  const task = {
+    title,
+    assignedTo: me.displayName,
+  };
 
   if (dueDate) {
     task.dueDateTime = {

@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { config } from './config.js';
-import { parseTaskFromText, formatDate } from './dateParser.js';
+import { parseTaskWithAI } from './aiParser.js';
+import { formatDate } from './dateParser.js';
 import { createTask, getTaskLists, getTasks } from './todoClient.js';
 
 export function createBot() {
@@ -12,12 +13,13 @@ export function createBot() {
     const welcomeMessage = `
 👋 Welcome to Microsoft To Do Assistant!
 
-I can help you create tasks using natural language. Just send me a message like:
+I use AI to understand your tasks in natural language. Just send me a message like:
 
 • "tomorrow at 10AM go to bank"
-• "remind me 15 minutes before"
-• "next Monday at 3pm call client"
+• "next Monday at 3pm call client, remind me 30 minutes before"
 • "Friday buy groceries"
+• "in 2 hours submit the report"
+• "on March 15 dentist appointment at 9am, remind 1 hour before"
 
 Commands:
 /help - Show this help message
@@ -45,7 +47,7 @@ Examples:
 • "on December 25 send Christmas cards"
 
 The bot will:
-✓ Parse the task title
+✓ Use AI to parse the task title
 ✓ Extract the due date/time
 ✓ Set reminders if specified
 ✓ Add it to your Microsoft To Do list
@@ -107,7 +109,7 @@ Commands:
         const status = task.status === 'completed' ? '✅' : '⏳';
         const title = task.title || 'Untitled';
         message += `${status} ${index + 1}. ${title}\n`;
-        
+
         if (task.dueDateTime) {
           const dueDate = new Date(task.dueDateTime.dateTime);
           message += `   📅 Due: ${formatDate(dueDate)}\n`;
@@ -139,27 +141,30 @@ Commands:
     }
 
     try {
-      // Parse the task from natural language
-      const taskData = parseTaskFromText(text);
+      // Notify user that AI is processing the message
+      await bot.sendMessage(chatId, '🤖 Parsing with AI...');
 
-      // Create confirmation message
+      // Parse the task from natural language using AI
+      const taskData = await parseTaskWithAI(text);
+
+      // Build confirmation message
       let confirmMessage = `📝 Creating task:\n\n`;
       confirmMessage += `Title: ${taskData.title}\n`;
-      
+
       if (taskData.dueDate) {
         confirmMessage += `📅 Due: ${formatDate(taskData.dueDate)}\n`;
       }
-      
+
       if (taskData.reminderDate) {
         confirmMessage += `⏰ Reminder: ${formatDate(taskData.reminderDate)}\n`;
       }
 
-      bot.sendMessage(chatId, confirmMessage);
+      await bot.sendMessage(chatId, confirmMessage);
 
       // Create the task in Microsoft To Do
       const createdTask = await createTask(taskData);
 
-      bot.sendMessage(
+      await bot.sendMessage(
         chatId,
         `✅ Task created successfully!\n\nTask ID: ${createdTask.id}`
       );

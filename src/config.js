@@ -20,6 +20,11 @@ export const config = {
   todo: {
     listId: process.env.TODO_LIST_ID,
   },
+  openrouter: {
+    apiKey: process.env.OPENROUTER_API_KEY,
+    model: process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini',
+    baseUrl: 'https://openrouter.ai/api/v1',
+  },
   timezone: process.env.TIMEZONE || 'Europe/Bucharest',
   tokenStorePath: process.env.TOKEN_STORE_PATH || './.tokens.json',
 };
@@ -30,8 +35,9 @@ export function validateConfig() {
     'AZURE_CLIENT_ID',
     'OAUTH_REDIRECT_URI',
     'TODO_LIST_ID',
+    'OPENROUTER_API_KEY',
   ];
-  // Note: AZURE_CLIENT_SECRET is now optional
+  // Note: AZURE_CLIENT_SECRET is optional for public client apps
   const missing = required.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(

@@ -2,13 +2,11 @@ import { config } from './config.js';
 
 /**
  * Returns the current UTC offset string for the configured timezone.
- * e.g. "+02:00" or "+03:00" (handles DST automatically).
+ * e.g. "+02:00" or "+03:00" — handles DST changes automatically.
  */
 function getUtcOffset(timezone) {
   const now = new Date();
-  // Get local time parts in the target timezone
   const tzDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-  // Get UTC time parts
   const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
   const diffMs = tzDate - utcDate;
   const sign = diffMs >= 0 ? '+' : '-';
@@ -19,30 +17,51 @@ function getUtcOffset(timezone) {
 }
 
 /**
- * Builds the system prompt with the current UTC offset baked in,
- * so the AI always returns timezone-aware ISO strings.
+ * Builds the system prompt with the live UTC offset baked in.
+ *
+ * Key logic:
+ *   - dueDate  → DATE ONLY (YYYY-MM-DD). MS Todo doesn't support time on due dates.
+ *   - reminderDateTime → if a time is mentioned, that IS the reminder.
+ *     "Party tomorrow at 7PM"            → reminder: 2026-03-04T19:00:00+02:00
+ *     "Party tomorrow at 7PM remind 1h before" → reminder: 2026-03-04T18:00:00+02:00
  */
 function buildSystemPrompt(utcOffset) {
-  return `You are a task extraction assistant. Given a natural language message, extract:
-1. Task name/title (required)
-2. Due date (optional)
-3. Reminder datetime (optional)
+  return `You are a task extraction assistant. Extract fields from a natural language message.
 
-The current date/time in the user's timezone and the exact UTC offset are provided as context.
+IMPORTANT: Microsoft To Do does NOT support time on due dates — store date only.
 
-Respond ONLY with valid JSON (no markdown, no explanation):
+Respond ONLY with valid JSON (no markdown, no extra text):
 {
-  "title": "task name here",
-  "dueDate": "2026-03-27T23:59:00${utcOffset}",
-  "reminderDate": "2026-03-27T08:00:00${utcOffset}"
+  "title": "task name",
+  "dueDate": "2026-03-04",
+  "reminderDateTime": "2026-03-04T19:00:00${utcOffset}"
 }
 
-Rules:
-- title: extract the actual task name; strip all date/time/reminder text
-- dueDate: ALWAYS append the UTC offset "${utcOffset}" to the datetime string; if no time given, default to 09:00:00; set to null if no date found
-- reminderDate: ALWAYS append the UTC offset "${utcOffset}" to the datetime string; calculate from reminder phrase (e.g. "remind me at 8AM" → use 08:00:00, "remind me 15 min before" → subtract from dueDate); set to null if not mentioned
-- Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") against the provided current date/time
-- Always return all three fields; use null for missing optional fields`;
+Field rules:
+
+title:
+  - Task name only; remove all date, time, and reminder phrases.
+
+dueDate:
+  - Format: YYYY-MM-DD (date only, NO time, NO offset).
+  - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") from the current date/time provided.
+  - Set to null if no date is mentioned.
+
+reminderDateTime:
+  - Format: YYYY-MM-DDTHH:mm:ss${utcOffset}  (ALWAYS include the offset "${utcOffset}").
+  - Logic (in priority order):
+    1. Time mentioned + "remind me X before" phrase:
+       → reminder = that time on dueDate MINUS X
+       Example: "at 7PM remind me 1h before" → T18:00:00${utcOffset}
+    2. Time mentioned, no reminder offset phrase:
+       → reminder = that time on dueDate (the event time IS the reminder)
+       Example: "at 7 evening" → T19:00:00${utcOffset}
+    3. Only "remind me X before", no specific event time:
+       → reminder = dueDate at 09:00:00 MINUS X
+    4. No time and no reminder phrase → null
+  - Set to null if dueDate is null.
+
+Always return all three fields. Use null for missing optional fields.`;
 }
 
 /**
@@ -52,10 +71,7 @@ Rules:
  */
 export async function parseTaskWithAI(text) {
   const apiKey = config.openrouter.apiKey;
-
-  if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY is not configured in .env');
-  }
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY is not configured in .env');
 
   const now = new Date();
   const utcOffset = getUtcOffset(config.timezone);
@@ -72,7 +88,6 @@ export async function parseTaskWithAI(text) {
   });
 
   const systemPrompt = buildSystemPrompt(utcOffset);
-
   const userMessage =
     `Current date/time: ${nowStr}\nTimezone: ${config.timezone} (UTC${utcOffset})\n\nUser message: "${text}"`;
 
@@ -102,14 +117,10 @@ export async function parseTaskWithAI(text) {
 
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error('Empty response received from AI');
-  }
+  if (!content) throw new Error('Empty response received from AI');
 
   let parsed;
   try {
-    // Strip markdown code fences if the model wrapped the JSON
     const jsonStr = content
       .replace(/```json\n?/g, '')
       .replace(/```\n?/g, '')
@@ -119,10 +130,19 @@ export async function parseTaskWithAI(text) {
     throw new Error(`AI returned non-JSON response: ${content}`);
   }
 
+  // dueDate: AI returns YYYY-MM-DD; parse as midnight in local timezone
+  const dueDate = parsed.dueDate
+    ? new Date(`${parsed.dueDate}T00:00:00${utcOffset}`)
+    : null;
+
+  // reminderDateTime: AI includes the offset, new Date() parses it correctly
+  const reminderDate = parsed.reminderDateTime
+    ? new Date(parsed.reminderDateTime)
+    : null;
+
   return {
     title: parsed.title?.trim() || 'New Task',
-    // new Date() correctly parses offset-aware strings like "2026-03-27T23:59:00+02:00"
-    dueDate: parsed.dueDate ? new Date(parsed.dueDate) : null,
-    reminderDate: parsed.reminderDate ? new Date(parsed.reminderDate) : null,
+    dueDate,
+    reminderDate,
   };
 }

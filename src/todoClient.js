@@ -63,6 +63,8 @@ async function getCurrentUser() {
 
 /**
  * Returns true if the given list ID corresponds to a shared list.
+ * A list is considered shared if the Graph API marks it as isShared,
+ * or if its display name matches one of the configured SHARED_LIST_NAMES.
  * @param {string} listId
  */
 async function isSharedList(listId) {
@@ -70,7 +72,11 @@ async function isSharedList(listId) {
     listCache = await getTaskLists();
   }
   const list = listCache.find((l) => l.id === listId);
-  return list ? list.isShared === true : false;
+  if (!list) return false;
+  if (list.isShared === true) return true;
+  return config.todo.sharedListNames.some(
+    (name) => name.toLowerCase() === list.displayName.toLowerCase()
+  );
 }
 
 /**
@@ -107,7 +113,7 @@ export async function createTask({ title, dueDate, reminderDate, listId }) {
   // Only assign to the current user when adding to a shared list
   if (await isSharedList(resolvedListId)) {
     const me = await getCurrentUser();
-    task.assignedTo = me.displayName;
+    task.assignedTo = me.userPrincipalName;
   }
 
   if (dueDate) {

@@ -62,6 +62,18 @@ async function getCurrentUser() {
 }
 
 /**
+ * Returns true if the given list ID corresponds to a shared list.
+ * @param {string} listId
+ */
+async function isSharedList(listId) {
+  if (!listCache) {
+    listCache = await getTaskLists();
+  }
+  const list = listCache.find((l) => l.id === listId);
+  return list ? list.isShared === true : false;
+}
+
+/**
  * Resolves a list display name to its Microsoft Graph list ID.
  * Uses an in-memory cache to avoid repeated API calls.
  * @param {string} name - The display name of the list (case-insensitive)
@@ -79,8 +91,7 @@ export async function getListIdByName(name) {
 
 /**
  * Creates a task in Microsoft To Do.
- * Always sets assignedTo to the current authenticated user so that
- * on shared lists the task is correctly assigned to you.
+ * When the target list is shared, automatically assigns the task to the current user.
  * @param {object} params
  * @param {string} params.title
  * @param {Date|null} params.dueDate
@@ -91,12 +102,13 @@ export async function createTask({ title, dueDate, reminderDate, listId }) {
   const client = createGraphClient();
   const resolvedListId = listId || config.todo.listId;
 
-  // Always assign to the current user (no-op on personal lists, required on shared lists)
-  const me = await getCurrentUser();
-  const task = {
-    title,
-    assignedTo: me.displayName,
-  };
+  const task = { title };
+
+  // Only assign to the current user when adding to a shared list
+  if (await isSharedList(resolvedListId)) {
+    const me = await getCurrentUser();
+    task.assignedTo = me.displayName;
+  }
 
   if (dueDate) {
     task.dueDateTime = {

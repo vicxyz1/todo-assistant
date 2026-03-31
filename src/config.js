@@ -23,6 +23,9 @@ export const config = {
   todo: {
     listId: process.env.TODO_LIST_ID,
     defaultListName: process.env.TODO_DEFAULT_LIST_NAME || '',
+    sharedListNames: process.env.SHARED_LIST_NAMES
+      ? process.env.SHARED_LIST_NAMES.split(',').map((n) => n.trim())
+      : [],
   },
   openrouter: {
     apiKey: process.env.OPENROUTER_API_KEY,
